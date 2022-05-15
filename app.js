@@ -1,8 +1,9 @@
 require('dotenv').config()
 const axios = require("axios");
 const express = require("express");
-const fs = require('fs');
 const app = express();
+const mongoose = require('mongoose');
+const Favorite = require('./models/favorite');
 const quranApiRootUrl = `https://api.quran.com/api/v4`;
 
 app.use(express.json());
@@ -11,6 +12,21 @@ app.use(express.urlencoded({ extended: false }));
 
 app.use("/favorites", express.static("favorites"));
 
+// Add headers before the routes are defined
+app.use(function (req, res, next) {
+
+    // Website you wish to allow to connect
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    // Request methods you wish to allow
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+
+    // Request headers you wish to allow
+    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type');
+
+    // Pass to next layer of middleware
+    next();
+});
 
 //GEt all the chapters from the quran
 app.get("/api/get-chapters", async (req, res) => {
@@ -31,79 +47,74 @@ app.get("/api/get-verses/:chapter_id", async (req, res) => {
     res.status(200).json({quranVerses: quranVerses.data.verses});
 });
 
-//Get favorite verses via the named volume based on ip address
+//Get favorite verses via the mongodb database.
 app.get("/api/get-favorite", async (req, res) => {
-    //Get ip address from the query string.
-    const { ip_address } = req.query;
-    //Get the final file path, in cases when the file exists.
-    const finalFilePath = path.join(__dirname, 'favorites', `${ip_address}Favorites.txt`);
-    let fileContents;
-    fs.exists(finalFilePath, async (exists) => {
-        if(exists) {
-            fileContents = (await fs.readFile(finalFilePath)).toString();
-        }
-    })
-    if(fileContents) {
-        return res.status(200).json({ favorites: fileContents.split("\n") });
-    }
-    return res.status(404).json({ message: "You don't have favorites yet."});
+    //Get all the favorite verses.
+    const favorites = await Favorite.find();
+    res.status(200).json({ favorites })
 });
 
-//Add verses to favorites via temporary storage that is stored in a named volume called favorites
+//Add verses to favorites to your nosql database, instatiate a new instance of the Favorite model.
 app.post('/api/add-favorite', async (req, res) => {
-    //Get the ip address and verse and create a file for that ip address in the favorites folder.
+    //Get the ip address to record who favorited and the verse itself. 
     const { ip_address, verse } = req.body;
-    //Get the temporary file path, in cases when a file doesn't exist.
-    const tempFilePath = path.join(__dirname, 'temp', `${ip_address}Favorites.txt`);
-    //Get the final file path, in cases when the file exists.
-    const finalFilePath = path.join(__dirname, 'favorites', `${ip_address}Favorites.txt`);
-    let verseAddedToExistingFile;
-    let verseAddedToNewFile;
-
-    await fs.writeFile(tempFilePath, `${verse} `);
-    exists(finalFilePath, async (exists) => {
-        if (exists) {
-            let fileContents = (await fs.readFile(finalFilePath)).toString();
-            fileContents += `\n ${verse}`;
-            verseAddedToExistingFile = true;
-            //Write to file with new verse.
-            await fs.writeFile(finalFilePath, fileContents);
-        } else {
-            //Ese copy temporary file to final file(found in favorites folder.)
-            await fs.copyFile(tempFilePath, finalFilePath);
-            //Unlink temporary file from final file(Found in favorites folder.)
-            await fs.unlink(tempFilePath);
-            verseAddedToNewFile = true;
-        }
-    });
-    if(verseAddedToExistingFile) {
-        res.status(201).json({ message: "Favorite Successfully added to your existing file."});
+    console.log('TRYING TO STORE FAVORITE');
+  
+    if (!ip_address || ip_address.trim().length === 0) {
+      console.log('INVALID INPUT - NO TEXT');
+      return res.status(422).json({ message: 'Invalid favorite text.' });
     }
-    if(verseAddedToNewFile) {
-        res.status(201).json({ message: "Favorite Successfully added to new file."});
+  
+    const favorite = new Favorite({
+      ip_address,
+      page_number: verse["page_number"],
+      verse_number: verse["verse_number"],
+      verse_in_english: verse["verse_in_english"],
+      pronunciation_in_english: verse["pronunciation_in_english"],
+    });
+  
+    try {
+      await favorite.save();
+      res
+        .status(201)
+        .json({ message: 'Favorite Verse saved', verse: { id: verse.id, verseInfo: JSON.stringify(verse)  } });
+      console.log('STORED NEW FAVORITE VERSE');
+    } catch (err) {
+      console.error('ERROR FETCHING FAVORITES');
+      console.error(err.message);
+      res.status(500).json({ message: 'Failed to save favorite.' });
     }
 });
 
-app.delete("/api/delete-favorite/:verse", async (req, res) => {
-    const { verse } = req.params;
-    const finalFilePath = path.join(__dirname, 'favorites', `${ip_address}Favorites.txt`);
-    let favoriteRemoved;
-    exists(finalFilePath, async (exists) => {
-        if (exists) {
-            let fileContents = (await fs.readFile(finalFilePath)).toString();
-            fileContents.replace(`\n ${verse}`, "");
-            if(fileContents.includes(verse)) fileContents.replace(`${verse} `);
-            await fs.writeFile(finalFilePath, fileContents);
-            favoriteRemoved = true;
-        } else {
-            favoriteRemoved = false;
-        }
-    });
-    if(favoriteRemoved) {
-        res.status(204).json({ message: "Favorite removed. "});
-    } else {
-        res.status(500).json({ message: "Favorite does not exist." });
+//Delete your favorite verse by passing in verse_Id or the mongodb id.
+app.delete("/api/delete-favorite/:verse_id", async (req, res) => {
+    const { verse_id } = req.params;
+    console.log('TRYING TO DELETE FAVORITES');
+    try {
+      await Favorite.deleteOne({ _id: verse_id });
+      res.status(200).json({ message: 'Deleted Favorite!' });
+      console.log('DELETED FAVORITE');
+    } catch (err) {
+      console.error('ERROR FETCHING FAVORITES');
+      console.error(err.message);
+      res.status(500).json({ message: 'Failed to delete favorite.' });
     }
 });
 
-app.listen(process.env.PORT, () => console.log("Listening on port " + process.env.PORT));
+//COnnect to the mongodb nosql database.
+mongoose.connect(
+    `mongodb://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@host.docker.internal:27017/favorite-verses?authSource=admin`,
+    {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    },
+    (err) => {
+      if (err) {
+        console.error('Failed to connect to nosql database.');
+        console.error(err);
+      } else {
+        console.log("Connected to nosql database.");
+        app.listen(process.env.PORT);
+      }
+    }
+);
