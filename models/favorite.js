@@ -2,6 +2,9 @@ const mongoose = require('mongoose');
 
 const Schema = mongoose.Schema;
 
+//Conditionally set the collection name
+const collectionName = process.env.NODE_ENV === 'development' ? 'favorite-verses-dev' : 'favorite-verses';
+
 const favoriteSchema = new Schema({
     ip_address: String,
     page_number: Number,
@@ -10,6 +13,6 @@ const favoriteSchema = new Schema({
     pronunciation_in_english: String,
 });
 
-const FavoriteModel = mongoose.model('Favorite', favoriteSchema);
+const FavoriteModel = mongoose.model(collectionName, favoriteSchema);
 
 module.exports = FavoriteModel;

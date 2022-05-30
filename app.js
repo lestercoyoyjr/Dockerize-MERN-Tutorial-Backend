@@ -64,7 +64,7 @@ app.post('/api/add-favorite', async (req, res) => {
       console.log('INVALID INPUT - NO TEXT');
       return res.status(422).json({ message: 'Invalid favorite text.' });
     }
-  
+
     const favorite = new Favorite({
       ip_address,
       page_number: verse["page_number"],
@@ -101,9 +101,9 @@ app.delete("/api/delete-favorite/:verse_id", async (req, res) => {
     }
 });
 
-//COnnect to the mongodb nosql database.
+//COnnect to the mongodb atlas nosql database.
 mongoose.connect(
-    `mongodb://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@host.docker.internal:27017/favorite-verses?authSource=admin`,
+    `mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@${process.env.MONGODB_URL}?ssl=true&authSource=admin`,
     {
       useNewUrlParser: true,
       useUnifiedTopology: true,
